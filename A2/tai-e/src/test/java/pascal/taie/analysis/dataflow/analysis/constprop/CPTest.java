@@ -66,4 +66,10 @@ public class CPTest {
     public void testInterprocedural() {
         testCP("Interprocedural");
     }
+
+    @Test
+    public void testBinaryOp() { testCP("BinaryOp");}
+
+    @Test
+    public void testLoop() { testCP("Loop");}
 }
