@@ -26,6 +26,9 @@ import pascal.taie.analysis.dataflow.analysis.DataflowAnalysis;
 import pascal.taie.analysis.dataflow.fact.DataflowResult;
 import pascal.taie.analysis.graph.cfg.CFG;
 
+import java.util.*;
+import java.util.concurrent.LinkedBlockingDeque;
+
 class WorkListSolver<Node, Fact> extends Solver<Node, Fact> {
 
     WorkListSolver(DataflowAnalysis<Node, Fact> analysis) {
@@ -34,11 +37,47 @@ class WorkListSolver<Node, Fact> extends Solver<Node, Fact> {
 
     @Override
     protected void doSolveForward(CFG<Node> cfg, DataflowResult<Node, Fact> result) {
-        // TODO - finish me
+        // slides ch.6 pp.258
+        Queue<Node> worklist = new LinkedBlockingDeque<>();
+        for (Node node : cfg) {
+            worklist.add(node);
+        }
+
+        while (!worklist.isEmpty()) {
+            Node cur = worklist.remove();
+            // slides: ch6 pp.255 (Non-distributivity), no need for now
+            // slides: ch6 pp.259
+            for (Node pred : cfg.getPredsOf(cur)) {
+                analysis.meetInto(result.getOutFact(pred), result.getInFact(cur));
+            }
+
+            if (analysis.transferNode(cur, result.getInFact(cur), result.getOutFact(cur))) {
+                worklist.addAll(cfg.getSuccsOf(cur));
+            }
+
+        }
+
     }
 
     @Override
     protected void doSolveBackward(CFG<Node> cfg, DataflowResult<Node, Fact> result) {
-        // TODO - finish me
+        Queue<Node> worklist = new LinkedBlockingDeque<>();
+        for (Node node : cfg) {
+            worklist.add(node);
+        }
+
+        while (!worklist.isEmpty()) {
+            Node cur = worklist.remove();
+            // slides: ch6 pp.255 (Non-distributivity), no need for now
+            // slides: ch6 pp.259
+            for (Node succ : cfg.getSuccsOf(cur)) {
+                analysis.meetInto(result.getInFact(succ), result.getOutFact(cur));
+            }
+
+            if (analysis.transferNode(cur, result.getInFact(cur), result.getOutFact(cur))) {
+                worklist.addAll(cfg.getPredsOf(cur));
+            }
+
+        }
     }
 }
