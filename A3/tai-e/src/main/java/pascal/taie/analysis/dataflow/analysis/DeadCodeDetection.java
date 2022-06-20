@@ -40,14 +40,10 @@ import pascal.taie.ir.exp.FieldAccess;
 import pascal.taie.ir.exp.NewExp;
 import pascal.taie.ir.exp.RValue;
 import pascal.taie.ir.exp.Var;
-import pascal.taie.ir.stmt.AssignStmt;
-import pascal.taie.ir.stmt.If;
-import pascal.taie.ir.stmt.Stmt;
-import pascal.taie.ir.stmt.SwitchStmt;
+import pascal.taie.ir.stmt.*;
+import pascal.taie.util.collection.Pair;
 
-import java.util.Comparator;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 public class DeadCodeDetection extends MethodAnalysis {
 
@@ -69,7 +65,83 @@ public class DeadCodeDetection extends MethodAnalysis {
                 ir.getResult(LiveVariableAnalysis.ID);
         // keep statements (dead code) sorted in the resulting set
         Set<Stmt> deadCode = new TreeSet<>(Comparator.comparing(Stmt::getIndex));
-        // TODO - finish me
+
+        // deadCode <- all the statements
+        // BFS starting from CFG entry
+        // remove each reachable statement from deadCode
+        // then check if the statement is dead code assignment, if so, re-add to deadCode
+        // then traverse all possible out-edges of the statement
+
+        // control-flow unreachable
+
+        deadCode.addAll(cfg.getIR().getStmts());
+
+        Queue<Stmt> controlFlowReachable = new LinkedList<>();
+        controlFlowReachable.add(cfg.getEntry());
+
+        queueLoop:
+        while (!controlFlowReachable.isEmpty()) {
+            Stmt cur = controlFlowReachable.remove();
+            deadCode.remove(cur);
+            // unreachable branch
+            if (cfg.isExit(cur)) {
+                continue queueLoop;
+            }
+            if (cur instanceof If ifs) {
+                Value conditionValue = ConstantPropagation.evaluate(ifs.getCondition(), constants.getInFact(cur));
+                if (conditionValue.isConstant()) {
+                    Set<Edge<Stmt>> edges = cfg.getOutEdgesOf(cur);
+                    if (conditionValue.getConstant() == 1) {  // true
+                        if (deadCode.contains(ifs.getTarget())) {
+                            controlFlowReachable.add(ifs.getTarget());
+                        }
+                        continue queueLoop;
+                    } else if (conditionValue.getConstant() == 0) {  // false
+                        edges.forEach(branch -> {
+                            if (branch.getKind() == Edge.Kind.IF_FALSE && deadCode.contains(branch.getTarget())) {
+                                controlFlowReachable.add(branch.getTarget());
+                            }
+                        });
+                    }
+                    continue queueLoop;
+                }
+            }
+            if (cur instanceof SwitchStmt switchStmt) {
+                Value conditionValue = ConstantPropagation.evaluate(switchStmt.getVar(), constants.getInFact(cur));
+                if (conditionValue.isConstant()) {
+                    // not in of cases, default branch
+                    if (!switchStmt.getCaseValues().contains(conditionValue.getConstant())) {
+                        if (deadCode.contains(switchStmt.getDefaultTarget())) {
+                            controlFlowReachable.add(switchStmt.getDefaultTarget());
+                        }
+
+                        continue queueLoop;
+                    }
+                    // check each of the cases
+                    for (Pair<Integer, Stmt> pair : switchStmt.getCaseTargets()) {
+
+                        if (conditionValue.getConstant() == pair.first()) {
+                            if (deadCode.contains(pair.second())) {
+                                controlFlowReachable.add(pair.second());
+                            }
+                            continue queueLoop;
+                        }
+                    }
+                }
+            }
+
+            if (cur instanceof AssignStmt assignStmt && hasNoSideEffect(assignStmt.getRValue())) {
+                // dead variable assignment
+                if (assignStmt.getLValue() instanceof Var && !liveVars.getOutFact(cur).contains((Var) assignStmt.getLValue())) {
+                    deadCode.add(cur);
+                }
+            }
+
+            // none of if(constant) or switch(constant) or return
+            cfg.getOutEdgesOf(cur).forEach(outEdge -> controlFlowReachable.add(outEdge.getTarget()));
+
+        }
+
         // Your task is to recognize dead code in ir and add it to deadCode
         return deadCode;
     }
